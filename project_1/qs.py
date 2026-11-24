@@ -111,7 +111,12 @@ def smoothness_bound(n):
         return 100
     if n < 10**13:
         return 1_000
-    return 10_000
+    # Measured: group 14's N (24 digits) is fastest at B = 2,000 (6.5 s vs 12.8 s at 10,000).
+    if n < 10**25:
+        return 2_000
+    # Measured: the Exercise 4 number (29 digits) is fastest at B = 5,000 (83 s vs 97 s);
+    # B <= 3,000 runs out of candidates before finding enough relations.
+    return 5_000
 
 
 if __name__ == "__main__":
