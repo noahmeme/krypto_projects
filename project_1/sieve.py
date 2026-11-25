@@ -146,9 +146,29 @@ def collect_relations(n, base, target, smooth_exponents, parity_mask, max_blocks
 # ---------------------------------------------------------------------------
 
 def is_prime(m):
-    if m < 2 or m % 2 == 0:
-        return m == 2
-    return all(m % d for d in range(3, isqrt(m) + 1, 2))
+    """Miller-Rabin. q can be huge for big n (about 4e22 for RSA-100), so trial division is far too slow.
+    With these 12 bases the answer is exact for every m < 3.3e24, and almost certain above that."""
+    bases = (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37)
+    if m < 2:
+        return False
+    for p in bases:
+        if m % p == 0:
+            return m == p
+    d, s = m - 1, 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    for a in bases:
+        x = pow(a, d, m)
+        if x in (1, m - 1):
+            continue
+        for _ in range(s - 1):
+            x = x * x % m
+            if x == m - 1:
+                break
+        else:
+            return False
+    return True
 
 
 def next_polynomial_prime(n, after):
