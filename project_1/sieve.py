@@ -12,6 +12,11 @@ close to log f(x) are trial-divided.
 
 Every f(x) is congruent to r^2 mod n (with r = r0 + x), so a smooth f(x) is a
 relation r^2 = f(x) (mod n) exactly like in the simple version.
+
+collect_relations_mpqs() is the multiple-polynomial version (MPQS): f(x) above
+grows linearly with x, so smooth values get rarer the longer we sieve. Instead,
+it sieves many short intervals, each with its own polynomial whose values stay
+about as small as at the start.
 """
 from math import isqrt, log
 
@@ -121,4 +126,103 @@ def collect_relations(n, base, target, smooth_exponents, parity_mask, max_blocks
                     return relations
 
     collect_relations.stats = {"x_values": max_blocks * BLOCK_SIZE, "candidates": candidates}
+    return relations
+
+
+# ---------------------------------------------------------------------------
+# Multiple polynomials (MPQS)
+#
+# For a = q^2 (q a prime with n a square mod q) and b with b^2 = n (mod a):
+#
+#     (a*x + b)^2 - n = a * h(x),   h(x) = a*x^2 + 2*b*x + c,   c = (b^2 - n) / a
+#
+# With r = (a*x + b) * q^(-1) mod n we get r^2 = h(x) (mod n), so a smooth h(x)
+# is a relation. Choosing a close to sqrt(2n) / M keeps |h(x)| below about
+# M * sqrt(n / 2) for x in [-M, M]. Every new q gives a fresh polynomial with
+# equally small values, so we never have to sieve far out where values are big.
+#
+# h(x) is negative near the middle of the interval, so the factor base gets an
+# extra "prime" -1 in front (base[0] == -1): exponent 1 means h(x) < 0.
+# ---------------------------------------------------------------------------
+
+def is_prime(m):
+    if m < 2 or m % 2 == 0:
+        return m == 2
+    return all(m % d for d in range(3, isqrt(m) + 1, 2))
+
+
+def next_polynomial_prime(n, after):
+    """The next prime q > after with n a square mod q, used for a = q^2."""
+    q = after + 1 if after % 2 == 0 else after + 2
+    while not (is_prime(q) and n % q and legendre(n, q) == 1):
+        q += 2
+    return q
+
+
+def collect_relations_mpqs(n, base, target, smooth_exponents, parity_mask, max_polynomials=50_000):
+    """Sieve one interval per polynomial until `target` relations (r, exponents, mask) are found.
+
+    base[0] must be -1 (the sign); base[1:] are the primes from factor_base().
+    """
+    primes = base[1:]
+    half = BLOCK_SIZE // 2                     # x runs from -half to half - 1
+    roots = [(p, log(p), sorted(set(sqrt_mod(n, p)))) for p in primes if p >= SMALL_PRIME_LIMIT]
+
+    relations = []
+    seen = set()
+    candidates = 0
+    q = max(isqrt(isqrt(2 * n) // half), 2)    # a = q^2 should be about sqrt(2n) / half
+
+    for polynomial in range(1, max_polynomials + 1):
+        q = next_polynomial_prime(n, q)
+        a = q * q
+        t = sqrt_mod(n, q)[0]
+        # Hensel lifting from t^2 = n (mod q) to b^2 = n (mod q^2).
+        b = (t + (n - t * t) // q * pow(2 * t, -1, q) % q * q) % a
+        q_inv = pow(q, -1, n)
+
+        def h(x):
+            return ((a * x + b) ** 2 - n) // a
+
+        # The sieve: p divides h(x) exactly when a*x + b = +-s (mod p), s^2 = n.
+        logs = [0.0] * BLOCK_SIZE
+        for p, log_p, square_roots in roots:
+            if p == q:
+                continue                       # a = q^2 has no inverse mod q
+            a_inv = pow(a, -1, p)
+            for s in square_roots:
+                first = ((s - b) * a_inv + half) % p
+                for i in range(first, BLOCK_SIZE, p):
+                    logs[i] += log_p
+
+        vertex = -b // a                       # where h(x) is most negative
+        for chunk_start in range(0, BLOCK_SIZE, CHUNK):
+            lo, hi = chunk_start - half, chunk_start - half + CHUNK - 1
+            # |h| on this chunk is largest at an end or at the vertex.
+            biggest = max(abs(h(lo)), abs(h(hi)), abs(h(vertex)) if lo <= vertex <= hi else 0)
+            threshold = log(max(biggest, 1)) - SLACK
+
+            for i, total in enumerate(logs[chunk_start:chunk_start + CHUNK]):
+                if total < threshold:
+                    continue
+                candidates += 1
+                x = lo + i
+                value = h(x)
+                if value == 0:
+                    continue
+                exponents = smooth_exponents(abs(value), primes)
+                if exponents is None:
+                    continue
+
+                exponents = [1 if value < 0 else 0] + exponents
+                mask = parity_mask(exponents)
+                if mask in seen:
+                    continue
+                seen.add(mask)
+                relations.append(((a * x + b) * q_inv % n, exponents, mask))
+                if len(relations) == target:
+                    collect_relations_mpqs.stats = {"polynomials": polynomial, "candidates": candidates}
+                    return relations
+
+    collect_relations_mpqs.stats = {"polynomials": max_polynomials, "candidates": candidates}
     return relations

@@ -10,7 +10,8 @@ EXTRA_L = 10
 # How relations are found:
 #   "simple": try r = isqrt(k*n) + j for many k and j and trial-divide every r^2 mod n (the project PDF's method)
 #   "real":   one polynomial f(x) = (r0 + x)^2 - n with log sieving, see sieve.py
-SIEVE_METHOD = "real"
+#   "mpqs":   log sieving with many polynomials, so the values stay small (sieve.py)
+SIEVE_METHOD = "mpqs"
 
 
 def read_n(path):
@@ -88,7 +89,13 @@ def collect_relations(n, base, max_k, max_j):
 
 def factor(n, bound, max_k, max_j, method="simple"):
     base = primes_below(bound)
-    if method == "real":
+    if method == "mpqs" and n < 10**15:
+        method = "real"   # small numbers: one polynomial is already instant, and a = q^2 would be too small
+    if method == "mpqs":
+        # -1 goes first in the base so negative h(x) values can be used; its exponent is the sign.
+        base = [-1] + sieve.factor_base(n, base)
+        relations = sieve.collect_relations_mpqs(n, base, len(base) + EXTRA_L, smooth_exponents, parity_mask)
+    elif method == "real":
         # Only primes that can divide f(x) are useful, which is about half of them.
         base = sieve.factor_base(n, base)
         relations = sieve.collect_relations(n, base, len(base) + EXTRA_L, smooth_exponents, parity_mask)
@@ -128,6 +135,12 @@ def smoothness_bound(n, method="simple"):
         return 100
     if n < 10**13:
         return 1_000
+    if method == "mpqs":
+        # Measured: group 14's N 0.02 s at B = 3,000-5,000; Exercise 4 0.11 s at B = 10,000;
+        # a 34-digit test number 0.9 s at B = 40,000.
+        if n < 10**25:
+            return 5_000
+        return 10_000 if n < 10**30 else 40_000
     if method == "real":
         # Sieving makes each extra prime cheap, so a larger B pays off.
         # Measured: group 14's N 0.04 s at B = 5,000; Exercise 4 0.37 s at B = 20,000 (5,000 runs out of x values).
