@@ -1,9 +1,12 @@
+import sys
 from math import gcd, isqrt, prod
 from pathlib import Path
 from subprocess import DEVNULL, run
 from tempfile import TemporaryDirectory
 
-GAUSS_BIN = Path(__file__).resolve().with_name("GaussBin.exe")
+# GaussBin.exe on Windows (download from Canvas). On macOS/Linux, compile the included source in this folder:
+#   clang++ -O2 -o GaussBin GaussBin_unix.cpp
+GAUSS_BIN = Path(__file__).resolve().with_name("GaussBin.exe" if sys.platform == "win32" else "GaussBin")
 PRIMES_FILE = Path(__file__).resolve().with_name("prim_2_24.txt")
 
 # Generate prime numbers below bound and return list with them
