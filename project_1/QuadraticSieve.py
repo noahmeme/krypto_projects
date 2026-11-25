@@ -1,4 +1,6 @@
+import os
 import sys
+import time
 from math import gcd, isqrt, prod
 from pathlib import Path
 from subprocess import DEVNULL, run
@@ -160,6 +162,13 @@ def factor(n, bound, max_k, max_j, *, extra_relations=10, use_prime_file=True, u
     return None
 
 
+def cpu_time():
+    # CPU seconds used by this program plus finished child processes (GaussBin runs as a child process,
+    # so time.process_time() alone would miss it). On Windows the child part is always 0.
+    t = os.times()
+    return t.user + t.system + t.children_user + t.children_system
+
+
 if __name__ == "__main__":
     n = 196097436898174954190359
     B = 8_167 # This is the 1025th prime, so only the 1024 first will be included.
@@ -170,12 +179,20 @@ if __name__ == "__main__":
     use_prime_file = True  # Set to True to read prim_2_24.txt.
     use_gauss_bin = True  # Set to False to use Python Gaussian elimination.
 
+    # Elapsed time is measured the same way on every OS and always includes GaussBin.
+    # CPU time only includes GaussBin on macOS/Linux (see cpu_time above).
+    start_cpu, start_wall = cpu_time(), time.perf_counter()
     factors = factor(
         n, B, max_k, max_j,
         extra_relations=extra_relations,
         use_prime_file=use_prime_file,
         use_gauss_bin=use_gauss_bin,
     )
+    elapsed_cpu = cpu_time() - start_cpu
+    elapsed_wall = time.perf_counter() - start_wall
+    print(f"CPU time: {elapsed_cpu:.2f} s")
+    print(f"Elapsed time: {elapsed_wall:.2f} s")
+
     if factors is None:
         print(f"No factor found with B = {B:,}, max_k = {max_k:,}, and max_j = {max_j:,}.")
     else:
