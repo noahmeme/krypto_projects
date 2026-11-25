@@ -2,8 +2,15 @@ import time
 from math import gcd, isqrt, prod
 from pathlib import Path
 
+import sieve
+
 # Number of relations to collect beyond the factor base size: L + EXTRA_L in total.
 EXTRA_L = 10
+
+# How relations are found:
+#   "simple": try r = isqrt(k*n) + j for many k and j and trial-divide every r^2 mod n (the project PDF's method)
+#   "real":   one polynomial f(x) = (r0 + x)^2 - n with log sieving, see sieve.py
+SIEVE_METHOD = "real"
 
 
 def read_n(path):
@@ -36,6 +43,11 @@ def smooth_exponents(value, base):
     return exponents if value == 1 else None
 
 
+def parity_mask(exponents):
+    # One bit per prime: 1 if its exponent is odd. This is the relation's row in the binary matrix.
+    return sum((e % 2) << i for i, e in enumerate(exponents))
+
+
 def add_row(parity, selected, pivots):
     while parity:
         column = parity.bit_length() - 1
@@ -63,7 +75,7 @@ def collect_relations(n, base, max_k, max_j):
             if exponents is None:
                 continue
 
-            mask = sum((e % 2) << i for i, e in enumerate(exponents))
+            mask = parity_mask(exponents)
             if mask in seen:
                 continue
             seen.add(mask)
@@ -74,9 +86,14 @@ def collect_relations(n, base, max_k, max_j):
     return relations
 
 
-def factor(n, bound, max_k, max_j):
+def factor(n, bound, max_k, max_j, method="simple"):
     base = primes_below(bound)
-    relations = collect_relations(n, base, max_k, max_j)
+    if method == "real":
+        # Only primes that can divide f(x) are useful, which is about half of them.
+        base = sieve.factor_base(n, base)
+        relations = sieve.collect_relations(n, base, len(base) + EXTRA_L, smooth_exponents, parity_mask)
+    else:
+        relations = collect_relations(n, base, max_k, max_j)
     if len(relations) < len(base) + EXTRA_L:
         return None
 
@@ -105,12 +122,16 @@ def factor(n, bound, max_k, max_j):
     return None
 
 
-def smoothness_bound(n):
+def smoothness_bound(n, method="simple"):
     # Small numbers need a small factor base, or there are not enough distinct relations to find.
     if n < 10**6:
         return 100
     if n < 10**13:
         return 1_000
+    if method == "real":
+        # Sieving makes each extra prime cheap, so a larger B pays off.
+        # Measured: group 14's N 0.04 s at B = 5,000; Exercise 4 0.37 s at B = 20,000 (5,000 runs out of x values).
+        return 5_000 if n < 10**25 else 20_000
     # Measured: group 14's N (24 digits) is fastest at B = 2,000 (6.5 s vs 12.8 s at 10,000).
     if n < 10**25:
         return 2_000
@@ -134,14 +155,14 @@ if __name__ == "__main__":
     ]
 
     for label, n in candidates:
-        B = smoothness_bound(n)
+        B = smoothness_bound(n, SIEVE_METHOD)
         start = time.process_time()
-        factors = factor(n, B, max_k, max_j)
+        factors = factor(n, B, max_k, max_j, method=SIEVE_METHOD)
         elapsed = time.process_time() - start
 
         if factors is None:
-            print(f"{label}: {n}  no factor found (B = {B:,}, max_k = {max_k:,}, max_j = {max_j})  [{elapsed:.2f} s CPU]")
+            print(f"{label}: {n}  no factor found ({SIEVE_METHOD} sieve, B = {B:,})  [{elapsed:.2f} s CPU]")
         else:
             p, q = factors
             assert p * q == n
-            print(f"{label}: {n} = {p} * {q}  (B = {B:,})  [{elapsed:.2f} s CPU]")
+            print(f"{label}: {n} = {p} * {q}  ({SIEVE_METHOD} sieve, B = {B:,})  [{elapsed:.2f} s CPU]")
